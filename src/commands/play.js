@@ -1,4 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
+const fs = require('fs')
+const ytsr = require('ytsr')
+const ytdl = require('ytdl-core')
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,7 +11,7 @@ module.exports = {
         )
         .setDescription('Replies with Pong!'),
     async execute(interaction, args = {}) {
-        if (typeof (args) != typeof ({})) return interaction.reply(`Interaction failed.`);
+        if (typeof (args) != typeof ({})) return;
 
         // Get an option from the interaction
         let getOption = (optionName) => {
@@ -19,9 +22,13 @@ module.exports = {
                 };
             }
         }
+        
+        const query = getOption('query')
+        const results = await ytsr(query, {"pages": 1}) 
+        const firstResult = results.items[0]
 
-        var query = getOption('query')
+        if (!firstResult) return; 
 
-        return interaction.reply(`**Searching for:** ${query}...`);
+        await interaction.reply(`**Added to queue:** ${firstResult.url}`)
     }
 };
