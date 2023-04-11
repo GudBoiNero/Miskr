@@ -1,0 +1,19 @@
+{
+  "name": "miskr",
+  "version": "1.0.0",
+  "description": "Personal discord bot that plays youtube music!",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "GudBoiNero#6650",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.9.0",
+    "youtube-dl-exec": "^2.4.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.38.0"
+  }
+}
