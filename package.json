@@ -11,7 +11,9 @@
   "license": "ISC",
   "dependencies": {
     "discord.js": "^14.9.0",
-    "youtube-dl-exec": "^2.4.0"
+    "youtube-dl-exec": "^2.4.0",
+    "ytdl": "^1.4.1",
+    "ytsr": "^3.8.1"
   },
   "devDependencies": {
     "eslint": "^8.38.0"
