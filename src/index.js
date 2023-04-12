@@ -28,6 +28,8 @@ for (const file of commandFiles) {
 
 client.once(Events.ClientReady, () => {
 	console.log('Ready!');
+
+	// Clear local_cache
 });
 
 
@@ -37,6 +39,10 @@ client.on(Events.InteractionCreate, async interaction => {
 	const command = client.commands.get(interaction.commandName);
 
 	if (!command) return;
+
+	// Initialize local_cache and server_cache for server
+	const serverId = interaction.guildId
+	initData(serverId)
 
 	try {
     let args = {}
@@ -78,6 +84,16 @@ const rest = new REST().setToken(CLIENT_TOKEN);
 		console.error(error);
 	}
 })();
+
+function initData(serverId) {
+	const localCachePath = path.join(__dirname.replace('src', 'res'), 'local_cache')
+	const localCacheFilePath = path.join(localCachePath, serverId+'.json')	
+	const serverDataPath = path.join(__dirname.replace('src', 'res'), 'server_data')
+	const serverDataFilePath = path.join(serverDataPath, serverId+'.json')	
+
+	fs.writeFileSync(localCacheFilePath, '{ "queue": [], "looping": false, "queue_looping": false }')
+	fs.writeFileSync(serverDataFilePath, '{ "playlists": [] }')
+}
 
 
 client.login(CLIENT_TOKEN);
