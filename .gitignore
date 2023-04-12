@@ -6,3 +6,5 @@ res/local_cache/*
 
 res/server_data/*
 !res/server_data/example.json
+
+res/dl/*

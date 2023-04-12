@@ -1,8 +1,11 @@
 const { SlashCommandBuilder } = require('discord.js');
 const fs = require('fs')
+const path = require('node:path')
 const ytsr = require('ytsr')
 const ytdl = require('ytdl-core');
-const { stringify } = require('querystring');
+const queueManager = require('../util/queueManager');
+
+const dlPath = path.join(__dirname.replace('src', 'res').replace('commands', ''), 'dl')
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -26,14 +29,18 @@ module.exports = {
         
         const query = getOption('query')
         console.log(`[play.js]: Searching for '${query}'`)
+
         const results = await ytsr(query, {"pages": 1}) 
-        const firstResult = results.items[0]
-        console.log(`[play.js]: Found '${firstResult.name}' ${firstResult.url}`)
+        const result = results.items[0]
+        console.log(`[play.js]: Found '${result.title}' ${result.url}`)
 
-        if (!firstResult) return; 
+        if (!result) return; 
 
-        await interaction.reply(`**Added to queue:** ${firstResult.url}`)
+        await interaction.reply(`**Added to queue:** ${result.url}`)
 
-        
+        const videoPath = path.join(dlPath, `${result.id}.webm`)
+
+        const download = ytdl(result.url, {quality: 'highestaudio', format: 'webm'})
+        download.pipe(fs.createWriteStream(videoPath))
     }
 };
