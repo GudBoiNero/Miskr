@@ -16,6 +16,12 @@ module.exports = {
         .setDescription('Replies with Pong!'),
     async execute(interaction, args = {}) {
         if (typeof (args) != typeof ({})) return;
+        console.log(interaction.member.voice)
+        if (!interaction.member.voice) {
+            await interaction.deferReply({ephemeral: true})
+
+            return interaction.editReply('You must be in a voice channel to use this command.')
+        };
 
         // Get an option from the interaction
         let getOption = (optionName) => {
@@ -38,9 +44,10 @@ module.exports = {
 
         await interaction.reply(`**Added to queue:** ${result.url}`)
 
-        const videoPath = path.join(dlPath, `${result.id}.webm`)
+        queueManager.addToQueue(interaction.guildId, result.url)
 
-        const download = ytdl(result.url, {quality: 'highestaudio', format: 'webm'})
-        download.pipe(fs.createWriteStream(videoPath))
+        //const videoPath = path.join(dlPath, `${result.id}.webm`)
+        //const download = ytdl(result.url, {quality: 'highestaudio', format: 'webm'})
+        //download.pipe(fs.createWriteStream(videoPath))
     }
 };
