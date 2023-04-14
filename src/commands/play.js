@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const fs = require('fs')
+const { joinVoiceChannel, VoiceConnectionStatus, getVoiceConnection } = require('@discordjs/voice')
 const path = require('node:path')
 const ytsr = require('ytsr')
 const ytdl = require('ytdl-core');
@@ -13,15 +13,31 @@ module.exports = {
         .addStringOption((option) =>
             option.setName('query').setDescription('Youtube query').setRequired(true),
         )
-        .setDescription('Replies with Pong!'),
+        .setDescription('Finds a youtube video based on your query, and plays it in your current voice channel.'),
     async execute(interaction, args = {}) {
         if (typeof (args) != typeof ({})) return;
-        console.log(interaction.member.voice)
-        if (!interaction.member.voice) {
+        
+        const member = await interaction.guild.members.fetch(interaction.member.id);
+        const voiceChannel = member.voice
+        console.log(voiceChannel)
+
+        if (!voiceChannel) {
             await interaction.deferReply({ephemeral: true})
 
             return interaction.editReply('You must be in a voice channel to use this command.')
         };
+
+        // Change the voice state and join the voice channel. This will be picked up in `index.js` so the queue will actually start playing.
+        const connection = joinVoiceChannel({
+            channelId: voiceChannel.id,
+            guildId: voiceChannel.guild.id,
+            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+        });
+        
+        connection.on(VoiceConnectionStatus.Connecting, (oldState, newState) => {
+            console.log(`[play.js]: Establishing connection with VoiceChannel|${interaction.channel.id}!`)
+        })
+
 
         // Get an option from the interaction
         let getOption = (optionName) => {

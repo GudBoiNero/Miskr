@@ -1,13 +1,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, Events, GatewayIntentBits, REST, Routes } = require('discord.js');
-const { createAudioResource, createAudioPlayer } = require('@discordjs/voice');
+const { createAudioResource, createAudioPlayer, AudioPlayerStatus, getVoiceConnection } = require('@discordjs/voice');
 const { CLIENT_ID, CLIENT_TOKEN } = require('./config.json');
 
 
 // Initialized client with intents
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const player = createAudioPlayer();
 
 // Data Constants
 const dlPath = path.join(__dirname.replace('src', 'res'), 'dl')
@@ -35,19 +34,16 @@ for (const file of commandFiles) {
 }
 
 
-// An AudioPlayer will always emit an "error" event with a .resource property
-player.on('error', error => {
-	console.error('Error:', error.message, 'with track', error.resource.metadata.title);
-});
-
-
-
 client.once(Events.ClientReady, () => {
 	console.log('Ready!');
 
 	clearCaches()
 });
 
+
+client.on(Events.ShardDisconnect, (closeEvent, shardId) => {
+	getVoiceConnection(closeEvent.guild).destroy()
+})
 
 
 client.on(Events.InteractionCreate, async interaction => {
@@ -120,9 +116,8 @@ function initData(serverId) {
 
 	if (!hasData(serverId)) {
 		fs.writeFileSync(serverDataFilePath, '{ "playlists": [] }')
+		console.log(`[index.js]: Guild|${serverId}'s data initialized`)
 	}
-
-	console.log(`[index.js]: Guild|${serverId}'s data initialized`)
 }
 
 
