@@ -36,7 +36,7 @@ module.exports = {
         console.log(consoleColors.FG_YELLOW+`[play.js]: Searching for '${query}'`)
         const results = await ytsr(query, {"pages": 1}) 
         const result = results.items[0]
-        console.log(consoleColors.FG_YELLOW+`[play.js]: Found '${result.title}' ${result.url}`)
+        console.log(consoleColors.FG_GREEN+`[play.js]: Found '${result.title}' ${result.url}`)
 
         if (!result) return; 
         queueManager.addToQueue(interaction.guildId, result.id)

@@ -1,9 +1,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const ytdl = require('ytdl-core')
+const ytdl = require('ytdl-core-discord')
 
 const { Client, Collection, Events, GatewayIntentBits, REST, Routes } = require('discord.js');
-const { createAudioResource, entersState, createAudioPlayer, StreamType, getVoiceConnection, VoiceConnectionStatus, joinVoiceChannel } = require('@discordjs/voice');
+const { createAudioResource, entersState, createAudioPlayer, NoSubscriberBehavior, getVoiceConnection, VoiceConnectionStatus, joinVoiceChannel } = require('@discordjs/voice');
 const { CLIENT_ID, CLIENT_TOKEN } = require('./config.json');
 const { consoleColors } = require('./util/consoleColors.js');
 
@@ -11,7 +11,7 @@ const queueManager = require('./util/queueManager');
 
 
 // Initialized client with intents
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates], autoReconnect: true, presence: "idle" });
 
 
 // Data Constants
@@ -72,11 +72,18 @@ client.on(Events.InteractionCreate, async interaction => {
 		if (interaction.commandName == "play") {
 			const member = await interaction.guild.members.fetch(interaction.member.id);
 			const voiceState = member.voice
-			const connection = joinVoiceChannel({
-				channelId: voiceState.channelId,
-				guildId: voiceState.guild.id,
-				adapterCreator: voiceState.guild.voiceAdapterCreator,
-			});
+			const connection = (() => {
+				const oldConnection = getVoiceConnection(voiceState.guild.id)
+				if (oldConnection) {
+					return oldConnection
+				} else {
+					return joinVoiceChannel({
+						channelId: voiceState.channelId,
+						guildId: voiceState.guild.id,
+						adapterCreator: voiceState.guild.voiceAdapterCreator,
+					})
+				}
+			})();
 	
 			// Change the voice state and join the voice channel. This will be picked up in `index.js` so the queue will actually start playing.
 			
@@ -85,33 +92,36 @@ client.on(Events.InteractionCreate, async interaction => {
 			// Get first in queue
 			const queue = queueManager.getFirstInQueue(interaction.guild.id)
 
-			// Download
-			const filePath = path.join(dlPath, `${queue}.webm`)
+			// Setup
 			const fileUrl  = validUrl.replace('__id__', queue)
-			const download = ytdl(fileUrl, {quality: 'highestaudio', format: 'webm'})
-			download.pipe(fs.createWriteStream(filePath))
+			const resource = createAudioResource(await ytdl(fileUrl, {filter: 'audioonly',  type: 'webm'}))
+			const player = createAudioPlayer({
+				behaviors: {
+					noSubscriber: NoSubscriberBehavior.Pause,
+				},
+			});
 
-			// Create and play audio resource
-			const resource = createAudioResource(fs.createReadStream(filePath));
-			const player = createAudioPlayer()
+			player.play(resource)
+			connection.subscribe(player)
 
 			// Error handling
 			player.on('error', error => {
-				console.error('Error:', error.message, 'with track', error.resource.metadata.title);
+				console.log(error)
 			});
 
-			connection.on(VoiceConnectionStatus.Ready, (event) => {
+			connection.on(VoiceConnectionStatus.Ready, async (event) => {
 				console.log(consoleColors.FG_YELLOW+`[index.js]: Opened connection with VoiceChannel|${interaction.channel.id}!`)
-				
-				connection.subscribe(player)
-				player.play(resource)
+			})
+
+			connection.on(VoiceConnectionStatus.Signalling, async () => {
+				console.log(consoleColors.FG_YELLOW+`[index.js]: Signalling ... VoiceChannel|${interaction.channel.id}`)
 			})
 			
 			connection.on(VoiceConnectionStatus.Disconnected, async (oldState, newState) => {
 				console.log(consoleColors.FG_RED+`[index.js]: Disconnected from VoiceChannel|${interaction.channel.id}!`)
 	
 				try {
-					console.log(consoleColors.FG_YELLOW+`[index.js]: Attempting to reconnect with VoiceChannel|${interaction.channel.id}!`)
+					console.log(consoleColors.FG_RED+`[index.js]: Attempting to reconnect with VoiceChannel|${interaction.channel.id}!`)
 					await Promise.race([
 						entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
 						entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
@@ -119,7 +129,8 @@ client.on(Events.InteractionCreate, async interaction => {
 					// Seems to be reconnecting to a new channel - ignore disconnect
 				} catch (error) {
 					// Seems to be a real disconnect which SHOULDN'T be recovered from
-					console.log(consoleColors.FG_YELLOW+`[index.js]: Failed reconnection with VoiceChannel|${interaction.channel.id}!`)
+					console.log(consoleColors.FG_RED+`[index.js]: Failed reconnection with VoiceChannel|${interaction.channel.id}!`)
+					player.stop()
 					connection.destroy();
 				}
 			})
