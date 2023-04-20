@@ -1,18 +1,24 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const ytdl = require('ytdl-core')
+
 const { Client, Collection, Events, GatewayIntentBits, REST, Routes } = require('discord.js');
-const { createAudioResource, createAudioPlayer, AudioPlayerStatus, getVoiceConnection } = require('@discordjs/voice');
+const { createAudioResource, entersState, createAudioPlayer, StreamType, getVoiceConnection, VoiceConnectionStatus, joinVoiceChannel } = require('@discordjs/voice');
 const { CLIENT_ID, CLIENT_TOKEN } = require('./config.json');
+const { consoleColors } = require('./util/consoleColors.js');
+
+const queueManager = require('./util/queueManager');
 
 
 // Initialized client with intents
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+
 
 // Data Constants
 const dlPath = path.join(__dirname.replace('src', 'res'), 'dl')
 const localCachePath = path.join(__dirname.replace('src', 'res'), 'local_cache')
 const serverDataPath = path.join(__dirname.replace('src', 'res'), 'server_data')
-
+const validUrl = "https://www.youtube.com/watch?v=__id__"
 
 // Command Initialization
 const commands = [];
@@ -20,12 +26,12 @@ client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 
-
-
 for (const file of commandFiles) {
 	const filePath = path.join(commandsPath, file);
 	const command = require(filePath);
+	
 	commands.push(command.data.toJSON());
+
 	if ('data' in command && 'execute' in command) {
 		client.commands.set(command.data.name, command);
 	} else {
@@ -35,7 +41,7 @@ for (const file of commandFiles) {
 
 
 client.once(Events.ClientReady, () => {
-	console.log('Ready!');
+	console.log(consoleColors.FG_GREEN+'Ready!');
 
 	clearCaches()
 });
@@ -49,23 +55,77 @@ client.on(Events.ShardDisconnect, (closeEvent, shardId) => {
 client.on(Events.InteractionCreate, async interaction => {
 	if (!interaction.isChatInputCommand()) return;
 
-	const command = client.commands.get(interaction.commandName);
+	const command = interaction.client.commands.get(interaction.commandName);
 
-	if (!command) return;
+	initData(interaction.guild.id)
 
-	// Initialize local_cache and server_cache for server
-	const serverId = interaction.guildId
-	initData(serverId)
+	if (!command) {
+		console.error(`No command matching ${interaction.commandName} was found.`);
+		return;
+	}
 
 	try {
-		let args = {}
+		console.log(consoleColors.FG_MAGENTA+`[index.js]: Executing ${interaction.commandName}`);
+		await command.execute(interaction);
 
-		switch (interaction.commandName) {
-			case 'play':
-				args['ydl'] = 'ydl'
+		// If `play.js` executed correctly
+		if (interaction.commandName == "play") {
+			const member = await interaction.guild.members.fetch(interaction.member.id);
+			const voiceState = member.voice
+			const connection = joinVoiceChannel({
+				channelId: voiceState.channelId,
+				guildId: voiceState.guild.id,
+				adapterCreator: voiceState.guild.voiceAdapterCreator,
+			});
+	
+			// Change the voice state and join the voice channel. This will be picked up in `index.js` so the queue will actually start playing.
+			
+			if (!connection) return
+
+			// Get first in queue
+			const queue = queueManager.getFirstInQueue(interaction.guild.id)
+
+			// Download
+			const filePath = path.join(dlPath, `${queue}.webm`)
+			const fileUrl  = validUrl.replace('__id__', queue)
+			const download = ytdl(fileUrl, {quality: 'highestaudio', format: 'webm'})
+			download.pipe(fs.createWriteStream(filePath))
+
+			// Create and play audio resource
+			const resource = createAudioResource(fs.createReadStream(filePath));
+			const player = createAudioPlayer()
+
+			// Error handling
+			player.on('error', error => {
+				console.error('Error:', error.message, 'with track', error.resource.metadata.title);
+			});
+
+			connection.on(VoiceConnectionStatus.Ready, (event) => {
+				console.log(consoleColors.FG_YELLOW+`[index.js]: Opened connection with VoiceChannel|${interaction.channel.id}!`)
+				
+				connection.subscribe(player)
+				player.play(resource)
+			})
+			
+			connection.on(VoiceConnectionStatus.Disconnected, async (oldState, newState) => {
+				console.log(consoleColors.FG_RED+`[index.js]: Disconnected from VoiceChannel|${interaction.channel.id}!`)
+	
+				try {
+					console.log(consoleColors.FG_YELLOW+`[index.js]: Attempting to reconnect with VoiceChannel|${interaction.channel.id}!`)
+					await Promise.race([
+						entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+						entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+					]);
+					// Seems to be reconnecting to a new channel - ignore disconnect
+				} catch (error) {
+					// Seems to be a real disconnect which SHOULDN'T be recovered from
+					console.log(consoleColors.FG_YELLOW+`[index.js]: Failed reconnection with VoiceChannel|${interaction.channel.id}!`)
+					connection.destroy();
+				}
+			})
+
+			// Cleanup
 		}
-
-		await command.execute(interaction, args);
 	} catch (error) {
 		console.error(error);
 		if (interaction.replied || interaction.deferred) {
@@ -80,11 +140,10 @@ client.on(Events.InteractionCreate, async interaction => {
 // Construct and prepare an instance of the REST module
 const rest = new REST().setToken(CLIENT_TOKEN);
 
-
 // and deploy your commands!
 (async () => {
 	try {
-		console.log(`Started refreshing ${commands.length} application (/) commands.`);
+		console.log(consoleColors.FG_GRAY+`Started refreshing ${commands.length} application (/) commands.`);
 
 		// The put method is used to fully refresh all commands in the guild with the current set
 		await rest.put(
@@ -92,7 +151,7 @@ const rest = new REST().setToken(CLIENT_TOKEN);
 			{ body: commands },
 		);
 
-		console.log(`Successfully reloaded ${commands.length} application (/) commands.`);
+		console.log(consoleColors.FG_GRAY+`Successfully reloaded ${commands.length} application (/) commands.`);
 	} catch (error) {
 		// And of course, make sure you catch and log any errors!
 		console.error(error);
@@ -100,12 +159,10 @@ const rest = new REST().setToken(CLIENT_TOKEN);
 })();
 
 
-
 function hasData(serverId) {
 	const serverDataFilePath = path.join(serverDataPath, serverId + '.json')
 	return (fs.existsSync(serverDataFilePath))
 }
-
 
 
 function initData(serverId) {
@@ -119,7 +176,6 @@ function initData(serverId) {
 		console.log(`[index.js]: Guild|${serverId}'s data initialized`)
 	}
 }
-
 
 
 function clearCaches() {
@@ -145,7 +201,6 @@ function clearCaches() {
 		fs.rmSync(removeableFiles[file])
 	}
 }
-
 
 
 client.login(CLIENT_TOKEN);

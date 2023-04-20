@@ -1,11 +1,12 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { joinVoiceChannel, VoiceConnectionStatus, getVoiceConnection } = require('@discordjs/voice')
+const { consoleColors } = require('../util/consoleColors')
 const path = require('node:path')
 const ytsr = require('ytsr')
-const ytdl = require('ytdl-core');
 const queueManager = require('../util/queueManager');
 
 const dlPath = path.join(__dirname.replace('src', 'res').replace('commands', ''), 'dl')
+
+const validUrl = "https://www.youtube.com/watch?v=__id__"
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,27 +17,6 @@ module.exports = {
         .setDescription('Finds a youtube video based on your query, and plays it in your current voice channel.'),
     async execute(interaction, args = {}) {
         if (typeof (args) != typeof ({})) return;
-        
-        const member = await interaction.guild.members.fetch(interaction.member.id);
-        const voiceChannel = member.voice
-        console.log(voiceChannel)
-
-        if (!voiceChannel) {
-            await interaction.deferReply({ephemeral: true})
-
-            return interaction.editReply('You must be in a voice channel to use this command.')
-        };
-
-        // Change the voice state and join the voice channel. This will be picked up in `index.js` so the queue will actually start playing.
-        const connection = joinVoiceChannel({
-            channelId: voiceChannel.id,
-            guildId: voiceChannel.guild.id,
-            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-        });
-        
-        connection.on(VoiceConnectionStatus.Connecting, (oldState, newState) => {
-            console.log(`[play.js]: Establishing connection with VoiceChannel|${interaction.channel.id}!`)
-        })
 
 
         // Get an option from the interaction
@@ -48,22 +28,34 @@ module.exports = {
                 };
             }
         }
+
+        if (!await this.senseChecks(interaction)) return;
+        
         
         const query = getOption('query')
-        console.log(`[play.js]: Searching for '${query}'`)
-
+        console.log(consoleColors.FG_YELLOW+`[play.js]: Searching for '${query}'`)
         const results = await ytsr(query, {"pages": 1}) 
         const result = results.items[0]
-        console.log(`[play.js]: Found '${result.title}' ${result.url}`)
+        console.log(consoleColors.FG_YELLOW+`[play.js]: Found '${result.title}' ${result.url}`)
 
         if (!result) return; 
-
+        queueManager.addToQueue(interaction.guildId, result.id)
         await interaction.reply(`**Added to queue:** ${result.url}`)
+    },
+    async senseChecks(interaction) {
+        const member = await interaction.guild.members.fetch(interaction.member.id);
+        const voiceState = member.voice
 
-        queueManager.addToQueue(interaction.guildId, result.url)
+        // Member VoiceState not in Guild of `interaction` or Member VoiceState Channel is not valid
+        if ((voiceState.guild.id != voiceState.guild.id) || (!voiceState.channel)) {
+            await interaction.deferReply({ephemeral: true})
+            await interaction.editReply('You must be in a voice channel to use this command.')
+            return false
+        }
 
-        //const videoPath = path.join(dlPath, `${result.id}.webm`)
-        //const download = ytdl(result.url, {quality: 'highestaudio', format: 'webm'})
-        //download.pipe(fs.createWriteStream(videoPath))
+        // Member VoiceState not in same Channel as Client VoiceState
+        
+        return true
     }
 };
+
